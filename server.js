@@ -23,8 +23,14 @@ const WARMUP_TIMEOUT_MS = 7 * 60 * 1000;
 
 // LongCat workflow: 1st segment ≈ 5.81s, then +5.0s/segment; the graph exposes
 // 1/2/3-segment outputs on these node ids.
-const SEG_SECONDS = [5.81, 10.81, 15.81];
+const SEG_SECONDS = [5.81, 10.81, 15.81];           // output video duration per segment count
 const SEG_OUTPUT_NODE = ['320', '386', '453'];
+// Pad audio to THIS many seconds (per segment count) so the wav2vec feature length
+// covers every segment's window — avoids the WanVideoLongCatAvatarExtendEmbeds
+// 4-vs-5-dim pad bug on short clips. Generous on purpose; extra is unused.
+// Pad audio well above the wav2vec feature requirement (~14 features/s; segment N
+// needs ~ (N-1)*80 + 93 features) so the buggy ExtendEmbeds pad-branch is never entered.
+const SEG_AUDIO_PAD = [10.0, 18.0, 24.0];
 
 const DEFAULT_PROMPT =
   "The person speaks calmly and naturally to the camera. Static locked-off camera, " +
@@ -32,6 +38,13 @@ const DEFAULT_PROMPT =
   "exact same position and framing as the input photo. Plain static background, consistent " +
   "lighting and identity. Only the mouth and subtle natural facial expressions move — " +
   "no head turning, no body movement. Sharp focus, high detail, photorealistic.";
+
+// Quality modes (set width/height/steps on the LongCat graph; 720p_hd post-upscales).
+const QUALITY = {
+  "480p":        { w: 832,  h: 480, steps: 6, postUpscale: false },
+  "720p_native": { w: 1280, h: 720, steps: 8, postUpscale: false },  // slow, compute-heavy
+  "720p_hd":     { w: 832,  h: 480, steps: 8, postUpscale: true  },  // fast gen + ffmpeg denoise+upscale
+};
 
 // ============================================================
 // AUTH — same Google OAuth + allowlist pattern as Avalution
@@ -49,6 +62,7 @@ console.log(AUTH_ENABLED
   ? `[auth] Google OAuth enabled, allowlist: ${[...ALLOWED_EMAILS].join(', ')}`
   : '[auth] DISABLED (dev mode — set GOOGLE_CLIENT_ID/SECRET/ALLOWED_EMAILS)');
 console.log(`[comfy] target: ${COMFY_URL || '(unset!)'}`);
+console.log(`[gen] segment audio pad (s): ${SEG_AUDIO_PAD.join(', ')}`);
 
 if (PUBLIC_URL.startsWith('https://')) app.set('trust proxy', 1);
 
@@ -166,6 +180,15 @@ async function padAudioToSilence(inFile, outFile, targetSec) {
     '-ar', '24000', '-ac', '1', outFile]);
 }
 
+// 720p post-prod: light denoise (cleans eye/mouth noise on small faces) + Lanczos
+// upscale to 1280x720 + gentle sharpen. Keeps audio.
+async function ffmpegUpscale720(inFile, outFile) {
+  await execFileP(FFMPEG, ['-y', '-i', inFile,
+    '-vf', 'hqdn3d=2:1:3:3,scale=1280:720:flags=lanczos,unsharp=3:3:0.4:3:3:0.0',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '18',
+    '-c:a', 'copy', outFile]);
+}
+
 async function comfyUpload(buf, filename) {
   const fd = new FormData();
   fd.append('image', new Blob([buf]), filename);
@@ -208,7 +231,7 @@ function extractError(entry) {
   return m ? `${m[1].node_type}: ${m[1].exception_message}`.slice(0, 300) : "erreur d'exécution";
 }
 
-async function runJob(jobId, img, aud, prompt) {
+async function runJob(jobId, img, aud, prompt, quality) {
   const job = jobs.get(jobId);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-'));
   try {
@@ -221,7 +244,7 @@ async function runJob(jobId, img, aud, prompt) {
     job.segNode = SEG_OUTPUT_NODE[nseg - 1];
     job.meta = { audioDuration: Math.round(dur * 10) / 10, segments: nseg, outputSeconds: SEG_SECONDS[nseg - 1] };
     const audPad = path.join(tmp, 'pad.wav');
-    await padAudioToSilence(audIn, audPad, SEG_SECONDS[nseg - 1] + 0.4);
+    await padAudioToSilence(audIn, audPad, SEG_AUDIO_PAD[nseg - 1]);
 
     job.phase = 'starting';            // triggers + waits for A100 cold start
     await waitComfyReady();
@@ -233,6 +256,10 @@ async function runJob(jobId, img, aud, prompt) {
 
     job.phase = 'submit';
     const p = loadTemplate();
+    const q = QUALITY[quality] || QUALITY['480p'];
+    p['245'].inputs.value = q.w;      // generation width
+    p['246'].inputs.value = q.h;      // generation height
+    p['325'].inputs.steps = q.steps;  // sampler steps
     p['284'].inputs.image = imgRef;
     p['125'].inputs.audio = audRef;
     delete p['125'].inputs.audioUI;
@@ -262,9 +289,10 @@ app.post('/api/generate', upload.fields([{ name: 'image', maxCount: 1 }, { name:
   const aud = req.files?.audio?.[0];
   if (!img || !aud) return res.status(400).json({ error: 'Image ET audio requis.' });
   const prompt = (req.body.prompt || '').trim() || DEFAULT_PROMPT;
+  const quality = QUALITY[req.body.quality] ? req.body.quality : '480p';
   const jobId = crypto.randomUUID();
-  jobs.set(jobId, { status: 'running', phase: 'audio', created: Date.now() });
-  runJob(jobId, img, aud, prompt);   // fire-and-forget; status endpoint tracks it
+  jobs.set(jobId, { status: 'running', phase: 'audio', created: Date.now(), quality });
+  runJob(jobId, img, aud, prompt, quality);   // fire-and-forget; status endpoint tracks it
   res.json({ jobId });
 });
 
@@ -296,12 +324,34 @@ app.get('/api/status/:jobId', async (req, res) => {
 app.get('/api/result/:jobId', async (req, res) => {
   const job = jobs.get(req.params.jobId);
   if (!job || job.status !== 'done' || !job.out) return res.status(404).send('pas prêt');
+  // serve cached (e.g. upscaled) file if already produced
+  if (job.resultFile && fs.existsSync(job.resultFile)) {
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', 'inline; filename="avatar-studio.mp4"');
+    return res.send(fs.readFileSync(job.resultFile));
+  }
   const q = new URLSearchParams({ filename: job.out.filename, subfolder: job.out.subfolder || '', type: job.out.type || 'output' });
   const r = await fetch(`${COMFY_URL}/view?${q}`);
   if (!r.ok) return res.status(502).send('récupération échouée');
+  const raw = Buffer.from(await r.arrayBuffer());
+  if (job.quality === '720p_hd') {
+    try {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'up-'));
+      const inF = path.join(dir, 'raw.mp4');
+      const outF = path.join(dir, 'hd720.mp4');
+      fs.writeFileSync(inF, raw);
+      await ffmpegUpscale720(inF, outF);
+      job.resultFile = outF;
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', 'inline; filename="avatar-studio-720p.mp4"');
+      return res.send(fs.readFileSync(outF));
+    } catch (e) {
+      console.error('[upscale] failed, serving raw:', e.message);
+    }
+  }
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Content-Disposition', 'inline; filename="avatar-studio.mp4"');
-  res.send(Buffer.from(await r.arrayBuffer()));
+  res.send(raw);
 });
 
 setInterval(() => {

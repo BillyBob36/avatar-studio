@@ -39,6 +39,8 @@
   textarea { width:100%; min-height:96px; background:var(--card2); border:1px solid var(--bd);
     border-radius:10px; color:var(--fg); padding:12px; font-size:13px; resize:vertical; font-family:inherit; line-height:1.5; }
   .hint { font-size:12px; color:var(--mut); margin-top:6px; }
+  select { width:100%; background:var(--card2); border:1px solid var(--bd); border-radius:10px;
+    color:var(--fg); padding:11px 12px; font-size:13px; font-family:inherit; cursor:pointer; }
   .actions { margin-top:22px; display:flex; gap:12px; align-items:center; }
   .btn { background:linear-gradient(135deg,var(--acc),var(--acc2)); color:#fff; border:none;
     padding:13px 26px; border-radius:11px; font-size:15px; font-weight:600; cursor:pointer; transition:opacity .15s, transform .08s; }
@@ -95,6 +97,16 @@
     <label class="lbl" for="prompt">3 · Prompt (scène / style) — pré-réglé caméra fixe</label>
     <textarea id="prompt" placeholder="Chargement…"></textarea>
     <div class="hint">Le réglage par défaut verrouille la caméra et le cadrage. Modifie-le seulement si tu veux changer le décor/style.</div>
+  </div>
+
+  <div class="card" style="margin-top:18px;">
+    <label class="lbl" for="quality">4 · Qualité de sortie</label>
+    <select id="quality">
+      <option value="720p_hd" selected>720p HD — recommandé (génère vite puis upscale IA, visages plus nets)</option>
+      <option value="480p">480p — le plus rapide (~3 min)</option>
+      <option value="720p_native">720p natif — qualité max mais lent (~10–15 min/clip)</option>
+    </select>
+    <div class="hint">720p HD = meilleur compromis netteté/vitesse, idéal pour les visages petits (plan américain). 720p natif = vraie génération haute résolution, plus lente.</div>
   </div>
 
   <div class="actions">
@@ -186,6 +198,7 @@ $('genBtn').onclick = async () => {
   elapsedTimer=setInterval(()=>{ const s=Math.floor((Date.now()-startTs)/1000); $('elapsed').textContent=`${Math.floor(s/60)}m ${String(s%60).padStart(2,'0')}s écoulées`; },1000);
   const fd=new FormData();
   fd.append('image',imgFile); fd.append('audio',audFile); fd.append('prompt',$('prompt').value);
+  fd.append('quality',$('quality').value);
   try {
     const r=await fetch('/api/generate',{method:'POST',body:fd});
     const j=await r.json();

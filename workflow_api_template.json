@@ -4,7 +4,7 @@
       "model": "LongCat-Avatar_comfy_bf16.safetensors",
       "base_precision": "bf16",
       "quantization": "disabled",
-      "load_device": "main_device",
+      "load_device": "offload_device",
       "attention_mode": "sdpa",
       "rms_norm_function": "default",
       "block_swap_args": [
@@ -44,7 +44,7 @@
   },
   "134": {
     "inputs": {
-      "blocks_to_swap": 0,
+      "blocks_to_swap": 20,
       "offload_img_emb": false,
       "offload_txt_emb": false,
       "use_non_blocking": true,
@@ -319,7 +319,7 @@
         0
       ],
       "seed": 1,
-      "force_offload": false,
+      "force_offload": true,
       "add_noise_to_samples": false,
       "model": [
         "122",
@@ -346,7 +346,7 @@
   "325": {
     "inputs": {
       "scheduler": "euler",
-      "steps": 6,
+      "steps": 8,
       "shift": 12,
       "start_step": 0,
       "end_step": -1,
@@ -364,7 +364,7 @@
         0
       ],
       "seed": 2,
-      "force_offload": false,
+      "force_offload": true,
       "add_noise_to_samples": false,
       "model": [
         "122",
@@ -687,7 +687,7 @@
         0
       ],
       "seed": 1,
-      "force_offload": false,
+      "force_offload": true,
       "add_noise_to_samples": false,
       "model": [
         "122",

@@ -3,3 +3,11 @@ node_modules/
 *.log
 tmp/
 out/
+# scratch / test artifacts + local-only model + FLF (not yet shipped)
+*.mp4
+*.png
+*.wav
+*.pth
+flf_*
+workflow_ui.json
+opt_test* ffalse_test* studio_test*
