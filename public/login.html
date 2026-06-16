@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connexion — Avatar Studio</title>
+  <style>
+    :root { --bg:#0d1117; --card:#161b22; --bd:#30363d; --fg:#e6edf3; --mut:#8b949e; --acc:#7c5cff; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      background:radial-gradient(1200px 600px at 50% -10%, #1b2236, var(--bg)); color:var(--fg);
+      min-height:100vh; display:flex; align-items:center; justify-content:center; }
+    .card { background:var(--card); border:1px solid var(--bd); border-radius:16px; padding:40px;
+      width:min(92vw,400px); text-align:center; box-shadow:0 20px 60px rgba(0,0,0,.4); }
+    h1 { margin:0 0 6px; font-size:22px; }
+    p { color:var(--mut); margin:0 0 28px; font-size:14px; }
+    .logo { font-size:40px; margin-bottom:14px; }
+    .btn { display:inline-flex; align-items:center; gap:10px; background:#fff; color:#1f1f1f;
+      border:none; padding:12px 22px; border-radius:10px; font-size:15px; font-weight:600;
+      cursor:pointer; text-decoration:none; transition:transform .08s; }
+    .btn:hover { transform:translateY(-1px); }
+    .err { background:rgba(248,81,73,.12); border:1px solid rgba(248,81,73,.4); color:#ff8077;
+      padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:20px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">🎬</div>
+    <h1>Avatar Studio</h1>
+    <p>Lip-sync vidéo — accès réservé</p>
+    <div id="err" class="err" style="display:none"></div>
+    <a class="btn" href="/auth/google/login">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.9 2.4 30.4 0 24 0 14.6 0 6.4 5.4 2.6 13.2l7.9 6.2C12.3 13.3 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7c4.3-4 6.8-9.9 6.8-17.4z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.9-6.2C1 16.5 0 20.1 0 24s1 7.5 2.6 10.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.2-8.5 2.2-6.3 0-11.7-3.8-13.5-9.4l-7.9 6.2C6.4 42.6 14.6 48 24 48z"/></svg>
+      Se connecter avec Google
+    </a>
+  </div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const e = q.get('error');
+    if (e) {
+      const map = { unauthorized:`Compte non autorisé${q.get('email')?' ('+q.get('email')+')':''}.`,
+        unverified:'Email Google non vérifié.', invalid_state:'Session expirée, réessaie.',
+        token_exchange:'Échec de connexion Google, réessaie.' };
+      const el = document.getElementById('err');
+      el.textContent = map[e] || ('Erreur : ' + e);
+      el.style.display = 'block';
+    }
+  </script>
+</body>
+</html>
